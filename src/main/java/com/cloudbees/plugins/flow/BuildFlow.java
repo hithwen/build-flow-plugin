@@ -18,14 +18,23 @@
 package com.cloudbees.plugins.flow;
 
 import hudson.Extension;
+import hudson.Util;
 import hudson.model.*;
 import hudson.model.Descriptor.FormException;
 import hudson.model.Queue.FlyweightTask;
+import hudson.tasks.BuildStep;
+import hudson.tasks.BuildStepDescriptor;
+import hudson.tasks.Fingerprinter;
 import hudson.tasks.Publisher;
 import hudson.util.AlternativeUiTextProvider;
 import hudson.util.DescribableList;
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.servlet.ServletException;
+import net.sf.json.JSONObject;
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.StaplerResponse;
 
@@ -34,11 +43,13 @@ import org.kohsuke.stapler.StaplerResponse;
  *
  * @author <a href="mailto:nicolas.deloof@cloudbees.com">Nicolas De loof</a>
  */
-public class BuildFlow extends AbstractProject<BuildFlow, FlowRun> implements TopLevelItem, FlyweightTask, SCMedItem {
+public class BuildFlow extends AbstractProject<BuildFlow, FlowRun> implements TopLevelItem, FlyweightTask, Saveable, SCMedItem {
 
     private final FlowIcon icon = new FlowIcon();
 
     private String dsl;
+    
+    private DescribableList<Publisher, Descriptor<Publisher>> publishers = new DescribableList<Publisher, Descriptor<Publisher>>(this);
 
     public BuildFlow(ItemGroup parent, String name) {
         super(parent, name);
@@ -51,11 +62,22 @@ public class BuildFlow extends AbstractProject<BuildFlow, FlowRun> implements To
     public void setDsl(String dsl) {
         this.dsl = dsl;
     }
+	 	
+    /**
+      * Returns the list of publishers. This method is used to initialize the config-publishers view with the data	
+      * stored in the publishers data member. Without this method defined the config-publishers view is always
+      * initialized to defaults.	
+      */	
+    public Map<Descriptor<Publisher>,Publisher> getPublishers() {
+        return publishers.toMap();
+    }
 
     @Override
     protected void submit(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException, FormException {
         super.submit(req, rsp);
-        this.dsl = req.getSubmittedForm().getString("dsl");
+        JSONObject json = req.getSubmittedForm();
+        this.dsl = json.getString("dsl");
+        publishers.rebuild(req, json, BuildStepDescriptor.filter(Publisher.all(), this.getClass()));
     }
 
     @Extension
@@ -86,9 +108,9 @@ public class BuildFlow extends AbstractProject<BuildFlow, FlowRun> implements To
         }
     }
 
-    @Override
+    @Override	
     public DescribableList<Publisher, Descriptor<Publisher>> getPublishersList() {
-        return new DescribableList<Publisher,Descriptor<Publisher>>(this);
+        return publishers;
     }
 
     @Override
@@ -98,18 +120,35 @@ public class BuildFlow extends AbstractProject<BuildFlow, FlowRun> implements To
 
     @Override
     public boolean isFingerprintConfigured() {
-        // TODO Auto-generated method stub
-        return false;
+        return getPublishersList().get(Fingerprinter.class)!=null;
     }
 
     @Override
     protected void buildDependencyGraph(DependencyGraph graph) {
-        // TODO Auto-generated method stub
-        
+        /* XXX: Examine the build flow to determine all possible downstream projects. */
+        publishers.buildDependencyGraph(this, graph);
     }
 
-	public AbstractProject<?, ?> asProject() {
-		return (AbstractProject) this;
-	} 
+    
+    @Override	
+    protected Set<ResourceActivity> getResourceActivities() {
+	final Set<ResourceActivity> activities = new HashSet<ResourceActivity>();
+        activities.addAll(super.getResourceActivities());
+        activities.addAll(Util.filter(publishers,ResourceActivity.class));
+        return activities;
+    }
+ 	 	
+    @Override
+    protected List<Action> createTransientActions() {
+        List<Action> r = super.createTransientActions();
+ 	for(BuildStep p : getPublishersList()) {
+            r.addAll(p.getProjectActions(this));
+        }
+ 	return r;
+    }
+    
+     public AbstractProject<?, ?> asProject() {
+	return this;
+    }
     
 }
