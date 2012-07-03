@@ -24,5 +24,6 @@
   <p:config-trigger>
   <p:config-upstream-pseudo-trigger />
   </p:config-trigger>
+  <p:config-publishers />
 
 </j:jelly>
