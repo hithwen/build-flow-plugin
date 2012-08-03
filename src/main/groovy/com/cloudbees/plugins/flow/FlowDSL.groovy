@@ -32,6 +32,7 @@ import hudson.slaves.EnvironmentVariablesNodeProperty
 import java.util.concurrent.CopyOnWriteArrayList
 import hudson.console.HyperlinkNote
 import org.tuenti.lock.FlowLock
+import com.thoughtworks.xstream.converters.collections.CollectionConverter
 
 public class FlowDSL {
 
@@ -48,7 +49,7 @@ public class FlowDSL {
 
         // Retrieve the upstream build if the flow was triggered by another job
         AbstractBuild upstream = null;
-        flowRun.causes.each{ cause -> 
+        flowRun.causes.each{ cause ->
             if (cause instanceof Cause.UpstreamCause) {
                 Job job = Jenkins.instance.getItemByFullName(cause.upstreamProject)
                 upstream = job?.getBuildByNumber(cause.upstreamBuild)
@@ -119,7 +120,7 @@ public class FlowDelegate {
     def build(String jobName) {
         build([:], jobName)
     }
-    
+
     def build(Map args, String jobName) {
         if (flowRun.state.result.isWorseThan(SUCCESS)) {
             fail()
@@ -196,6 +197,10 @@ public class FlowDelegate {
         }
     }
 
+    def parallel(Collection<? extends Closure> closures) {
+        parallel(closures as Closure[])
+    }
+
     def parallel(Closure ... closures) {
         ExecutorService pool = Executors.newCachedThreadPool()
         Set<Run> upstream = flowRun.state.lastCompleted
@@ -220,13 +225,13 @@ public class FlowDelegate {
         listener.logger.println("}")
         return results
     }
-    
+
     def locksection (String name, lockClosure) {
         FlowLock lock = null;
         if (shouldNotContinue()) {
             listener.logger.println("Current status is ${currentStatus}, skipping lock section")
             return
-        } 
+        }
         try {
             lock = new FlowLock(name, flowRun, listener);
             lock.getLock();
@@ -243,7 +248,7 @@ public class FlowDelegate {
     def methodMissing(String name, Object args) {
         throw new MissingMethodException(name, this.class, args);
     }
-    
+
     def shouldNotContinue() {
         return flowRun.state.result.isWorseThan(UNSTABLE)
     }
